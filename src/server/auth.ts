@@ -2,6 +2,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type GetServerSidePropsContext } from "next";
 import {
   getServerSession,
+  Session,
   type DefaultSession,
   type NextAuthOptions,
 } from "next-auth";
@@ -14,6 +15,7 @@ import { db } from "~/server/db";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { SupabaseAdapter } from "@auth/supabase-adapter";
 import { supabase } from "~/pages/api/auth/[...nextauth]";
+import { JWT } from "next-auth/jwt";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -43,13 +45,24 @@ declare module "next-auth" {
  */
 export const authOptions: NextAuthOptions = {
   callbacks: {
-    session: ({ session, user }) => ({
-      ...session,
-      user: {
-        ...session.user,
-        id: user.id,
-      },
-    }),
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.email = user.email;
+        token.accessToken = user.id; // Attach access token
+      }
+      return token;
+    },
+    async session({ session, token }: { session: Session, token: JWT }) {
+      if (token) {
+        // @ts-expect-error typeErr
+        session.user.id = token.id;
+        session.user.email = token.email;
+        // @ts-expect-error typeErr
+        session.accessToken = token.accessToken;
+      }
+      return session;
+    },
   },
   // adapter: PrismaAdapter(db) as Adapter,
   providers: [
@@ -72,24 +85,37 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      // @ts-expect-error asd
-      async authorize(credentials: { email: string; password: string }) {
-        const { email, password } = credentials;
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          throw new Error("Missing email or password");
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+          email: credentials.email,
+          password: credentials.password,
         });
 
-        if (error || !data.user) throw new Error("Invalid email or password");
-        return { id: data.user.id, email: data.user.email };
+        if (error || !data.user) {
+          throw new Error("Invalid email or password");
+        }
+
+        // Return user object with necessary properties
+        return {
+          id: data.user.id,
+          email: data.user.email,
+          accessToken: data.session?.access_token, // Store access token
+        };
       },
     }),
   ],
   adapter: SupabaseAdapter({
-    url: "https://ucfytyefgzmmqjkvzmlg.supabase.co",
-    secret: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjZnl0eWVmZ3ptbXFqa3Z6bWxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE5Mjc1NzQsImV4cCI6MjA1NzUwMzU3NH0.Se7GuIxOVV63EBPzXUJxgVv5tbfpLfk4zngTfuaQruk",
+    url: process.env.SUPABASE_URL!,
+    secret: process.env.SUPABASE_ANON_KEY!,
   }),
   secret: process.env.NEXTAUTH_SECRET!,
+  pages: {
+    signIn: "/login",
+  },
   session: {
     strategy: "jwt",
   },

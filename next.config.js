@@ -18,6 +18,10 @@ const config = {
     defaultLocale: "en",
   },
   transpilePackages: ["geist"],
+  compiler: {
+    // Enables the styled-components SWC transform
+    styledComponents: true,
+  },
 };
 
 export default config;

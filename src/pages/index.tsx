@@ -17,7 +17,8 @@ export default function Home() {
 
       console.log(data);
     };
-    fetchTodos();
+
+    fetchTodos().catch(err => console.log(err));
   }, []);
 
   return (
